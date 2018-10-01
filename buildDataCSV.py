@@ -14,7 +14,10 @@ counties = [
     '065', 
     '025'
     ]
-geoid_prefix = '15000US'
+
+bg_geoid_prefix = '15000US'
+tr_geoid_prefix = '14000US'
+cty_geoid_prefix = '05000US'
 
 NUMBER = 0
 NAME = 1
@@ -34,10 +37,11 @@ output_dict = {}
 
 #----------------------------------------------------------------------
 class GeographicArguments:
-    def __init__(self, county, variable, API_key):
+    def __init__(self, county, variable, API_key, level):
         self.county = county
         self.variable = variable
         self.API_key = API_key
+        self.level = level
 
     def get_county(self):
         return self.county
@@ -47,6 +51,9 @@ class GeographicArguments:
 
     def get_API_KEY(self):
         return self.API_key
+
+    def get_level(self):
+        return self.level
 
 class ThreadPool:
     def __init__(self, worker_num=20):
@@ -66,38 +73,69 @@ def wrapper_target_func(q, request_builder):
     while True:
         try:
             ga = q.get()
-            print()
-            request_builder(ga.get_county(), ga.get_variable(), ga.get_API_KEY())
+            request_builder(ga.get_county(), ga.get_variable(), ga.get_API_KEY(), ga.get_level())
             q.task_done()
         except queue.Empty:
             break
 
-def request_builder(county, variable, API_key):
+def request_builder(county, variable, API_key, level):
     c = Census(API_key)
-    ret_array = c.acs5.state_county_blockgroup(('NAME', variable), states.CA.fips, county, Census.ALL)
-    for ret_element in ret_array:
-        geoid = geoid_prefix + ret_element['state'] + ret_element['county'] + ret_element['tract'] + ret_element['block group']
-        output_dict[geoid][variable] = ret_element[variable] 
-    return output_dict
+    request_by_level(county, variable, level, c)
 
-def init_first_column(API_key):
+def request_by_level(county, variable, level, c):
+    if level == BG:
+        ret_array = c.acs5.state_county_blockgroup(('NAME', variable), states.CA.fips, county, Census.ALL)
+        for ret_element in ret_array:
+            geoid = bg_geoid_prefix + ret_element['state'] + ret_element['county'] + ret_element['tract'] + ret_element['block group']
+            output_dict[geoid][variable] = ret_element[variable]
+    elif level == TRACT:
+        ret_array = c.acs5.state_county_tract(('NAME', variable), states.CA.fips, county, Census.ALL)
+        for ret_element in ret_array:
+            geoid = tr_geoid_prefix + ret_element['state'] + ret_element['county'] + ret_element['tract']
+            output_dict[geoid][variable] = ret_element[variable]
+    elif level == COUNTY:
+        ret_array = c.acs5.state_county(('NAME', variable), states.CA.fips, county)
+        for ret_element in ret_array:
+            geoid = cty_geoid_prefix + ret_element['state'] + ret_element['county']
+            output_dict[geoid][variable] = ret_element[variable]
+
+def init_first_column(API_key, level):
     c = Census(API_key)
     for county in counties:
-        v = 'B01001_001E'
-        ret_array = c.acs5.state_county_blockgroup(('NAME', v), states.CA.fips, county, Census.ALL)
-        for ret_element in ret_array:
-            geoid = geoid_prefix + ret_element['state'] + ret_element['county'] + ret_element['tract'] + ret_element['block group']
-            print(geoid)
-            output_dict[geoid] = {}
-            geoid_array.append(geoid)
-            output_dict[geoid]['GEOID'] = geoid
+        if level == BG:
+            v = 'B01001_001E'
+            ret_array = c.acs5.state_county_blockgroup(('NAME', v), states.CA.fips, county, Census.ALL)
+            for ret_element in ret_array:
+                geoid = bg_geoid_prefix + ret_element['state'] + ret_element['county'] + ret_element['tract'] + ret_element['block group']
+                print(geoid)
+                output_dict[geoid] = {}
+                geoid_array.append(geoid)
+                output_dict[geoid]['GEOID'] = geoid
+        elif level == TRACT:
+            v = 'B07001_001E'
+            ret_array = c.acs5.state_county_tract(('NAME', v), states.CA.fips, county, Census.ALL)
+            print(ret_array)
+            for ret_element in ret_array:
+                geoid = tr_geoid_prefix + ret_element['state'] + ret_element['county'] + ret_element['tract']
+                print(geoid)
+                output_dict[geoid] = {}
+                geoid_array.append(geoid)
+                output_dict[geoid]['GEOID'] = geoid
+        elif level == COUNTY:
+            v = 'B01001_001E'
+            ret_array = c.acs5.state_county(('NAME', v), states.CA.fips, county)
+            for ret_element in ret_array:
+                geoid = cty_geoid_prefix + ret_element['state'] + ret_element['county']
+                print(geoid)
+                output_dict[geoid] = {}
+                geoid_array.append(geoid)
+                output_dict[geoid]['GEOID'] = geoid
 
-
-def process_data_multi_thread(variables, API_key):
+def process_data_multi_thread(variables, API_key, level):
     thread_pool = ThreadPool()
     for county in counties:
         for variable in variables:
-            geographic_arguments = GeographicArguments(county, variable, API_key)
+            geographic_arguments = GeographicArguments(county, variable, API_key, level)
             thread_pool.putWorkInQueue(geographic_arguments)
     thread_pool.waitForCompletion()
 
@@ -108,7 +146,7 @@ def write_data_to_csv(output_path, variables):
         for geoid in geoid_array:
             writer.writerow(output_dict[geoid])
 
-def generate_variable_array(path, level):
+def extractLevel(level):
     level = {
         'AREA': AREA_REPORT,
         'PMT': PMT,
@@ -116,6 +154,9 @@ def generate_variable_array(path, level):
         'BG': BG,
         'CTY': COUNTY,
     }[level]
+    return level
+
+def generate_variable_array(path, level):
     variables = []
     with open(path, 'r') as inputfile:
         reader = csv.reader(inputfile)
@@ -145,11 +186,12 @@ def generate_variable_array(path, level):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        raise Exception('Too few arguments! Syntax: \npython ' + sys.argv[0] + ' codebookcsv outputFilename')
+        raise Exception('Too few arguments! Syntax: \npython ' + sys.argv[0] + ' codebookcsv outputFilename API_key')
     codebook_csv_file = sys.argv[1] #"codebook.csv"
     output_csv_file = sys.argv[2] #"1216_ACS_BG"
     API_key = sys.argv[3]
-    variables = generate_variable_array(codebook_csv_file, output_csv_file[-2:])
-    init_first_column(API_key)
-    process_data_multi_thread(variables, API_key)
+    level = extractLevel(output_csv_file.split('_')[-1])
+    variables = generate_variable_array(codebook_csv_file, level)
+    init_first_column(API_key, level)
+    process_data_multi_thread(variables, API_key, level)
     write_data_to_csv(output_csv_file, variables)
