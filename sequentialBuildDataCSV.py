@@ -47,17 +47,35 @@ def request_by_level(county, variable, level, c):
         ret_array = c.acs5.state_county_blockgroup(('NAME', variable), states.CA.fips, county, Census.ALL)
         for ret_element in ret_array:
             geoid = bg_geoid_prefix + ret_element['state'] + ret_element['county'] + ret_element['tract'] + ret_element['block group']
-            output_dict[geoid][variable] = ret_element[variable]
+            if ret_element[variable]:
+                if isinstance(ret_element[variable], str):   #sometimes the result can be string-represented int
+                    if int(ret_element[variable]) >= 0:
+                        output_dict[geoid][variable] = int(ret_element[variable])
+                elif ret_element[variable] >= 0:
+                    output_dict[geoid][variable] = ret_element[variable]
+            else:
+                output_dict[geoid][variable] = 0
     elif level == TRACT:
         ret_array = c.acs5.state_county_tract(('NAME', variable), states.CA.fips, county, Census.ALL)
         for ret_element in ret_array:
             geoid = tr_geoid_prefix + ret_element['state'] + ret_element['county'] + ret_element['tract']
-            output_dict[geoid][variable] = ret_element[variable]
+            if ret_element[variable]:
+                if ret_element[variable] >= 0:
+                    output_dict[geoid][variable] = ret_element[variable]
+            else:
+                output_dict[geoid][variable] = 0
     elif level == COUNTY:
         ret_array = c.acs5.state_county(('NAME', variable), states.CA.fips, county)
         for ret_element in ret_array:
             geoid = cty_geoid_prefix + ret_element['state'] + ret_element['county']
-            output_dict[geoid][variable] = ret_element[variable]
+            if ret_element[variable]:
+                if isinstance(ret_element[variable], str):   #sometimes the result can be string-represented int
+                    if int(ret_element[variable]) >= 0:
+                        output_dict[geoid][variable] = int(ret_element[variable])
+                elif ret_element[variable] >= 0:
+                    output_dict[geoid][variable] = ret_element[variable]
+            else:
+                output_dict[geoid][variable] = 0
 
 def extractLevel(level):
     level = {
