@@ -35,8 +35,8 @@ output_dict = {}
 
 #----------------------------------------------------------------------
 
-def request_builder(variables, API_key, level):
-    c = Census(API_key)
+def request_builder(variables, API_key, level, year):
+    c = Census(API_key, year=2000+int(year))
     for county in counties:
         for variable in variables:
             print()
@@ -160,8 +160,10 @@ if __name__ == "__main__":
     codebook_csv_file = sys.argv[1] #"codebook.csv"
     output_csv_file = sys.argv[2] #"1216_ACS_BG"
     API_key = sys.argv[3]
+    year = output_csv_file.split('_')[0][2:]
+    # print(year)
     level = extractLevel(output_csv_file.split('_')[-1])
     init_first_column(API_key,level)
     variables = generate_variable_array(codebook_csv_file, level)
-    request_builder(variables, API_key, level)
+    request_builder(variables, API_key, level, year)
     write_data_to_csv(output_csv_file, variables)
